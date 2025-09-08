@@ -84,6 +84,8 @@ func main() {
 }
 
 func explore(ctx context.Context, cln ble.Client, p *ble.Profile) error {
+	var activeSubscriptions []*ble.Characteristic // Wait at the end if the list is not empty.
+
 	for _, s := range p.Services {
 		fmt.Printf("    Service: %s %s, Handle (0x%02X)\n", s.UUID, ble.Name(s.UUID), s.Handle)
 
@@ -130,11 +132,7 @@ func explore(ctx context.Context, cln ble.Client, p *ble.Profile) error {
 					if err := cln.Subscribe(c, false, h); err != nil {
 						log.Fatalf("subscribe failed: %s", err)
 					}
-					time.Sleep(*sub)
-					if err := cln.Unsubscribe(c, false); err != nil {
-						log.Fatalf("unsubscribe failed: %s", err)
-					}
-					fmt.Printf("-- Unsubscribe to notification --\n")
+					activeSubscriptions = append(activeSubscriptions, c)
 				}
 				if (c.Property & ble.CharIndicate) != 0 {
 					fmt.Printf("\n-- Subscribe to indication of %s --\n", *sub)
@@ -142,17 +140,37 @@ func explore(ctx context.Context, cln ble.Client, p *ble.Profile) error {
 					if err := cln.Subscribe(c, true, h); err != nil {
 						log.Fatalf("subscribe failed: %s", err)
 					}
-					time.Sleep(*sub)
-					if err := cln.Unsubscribe(c, true); err != nil {
-						log.Fatalf("unsubscribe failed: %s", err)
-					}
-					fmt.Printf("-- Unsubscribe to indication --\n")
+					activeSubscriptions = append(activeSubscriptions, c)
 				}
 			}
 		}
 		fmt.Printf("\n")
 	}
-	return nil
+	if len(activeSubscriptions) == 0 {
+		return nil
+	}
+
+	// If we are subscribed, wait out the subscription duration (--sub).
+	select {
+	case <-time.After(*sub): // The happy path.
+	case <-cln.Disconnected():
+		// Some devices will kick us earlier. Maybe reconnect.
+		// In this example we will proceed, unsubscribing will not block.
+	case <-ctx.Done():
+		// The user has pressed ctrl+C or something.
+		// This could be the user connecting to a different endpoint.
+		// In any case, show how to orderly exit by proceeding to cln.Unsubscribe.
+	}
+	var err error // Retain the last error, do not exit on the first with entries remaining.
+	for _, c := range activeSubscriptions {
+		if err2 := cln.Unsubscribe(c, (c.Property&ble.CharNotify) != 0); err2 != nil {
+			err = err2
+			log.Printf("unsubscribe failed: %s", err2)
+		} else {
+			log.Printf("-- Unsubscribed from notification or indication --\n")
+		}
+	}
+	return err
 }
 
 func propString(p ble.Property) string {
