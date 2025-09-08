@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -42,13 +44,17 @@ func main() {
 		}
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
+	defer stop()
+
 	// Scan for specified durantion, or until interrupted by user.
 	fmt.Printf("Scanning for %s...\n", *sd)
-	ctx := ble.WithSigHandler(context.WithTimeout(context.Background(), *sd))
-	cln, err := ble.Connect(ctx, filter)
+	connectCtx, cancelConnect := context.WithTimeout(ctx, *sd)
+	cln, err := ble.Connect(connectCtx, filter)
 	if err != nil {
 		log.Fatalf("can't connect : %s", err)
 	}
+	cancelConnect()
 
 	// Make sure we had the chance to print out the message.
 	done := make(chan struct{})
@@ -68,7 +74,7 @@ func main() {
 	}
 
 	// Start the exploration.
-	explore(cln, p)
+	explore(ctx, cln, p)
 
 	// Disconnect the connection. (On OS X, this might take a while.)
 	fmt.Printf("Disconnecting [ %s ]... (this might take up to few seconds on OS X)\n", cln.Addr())
@@ -77,7 +83,7 @@ func main() {
 	<-done
 }
 
-func explore(cln ble.Client, p *ble.Profile) error {
+func explore(ctx context.Context, cln ble.Client, p *ble.Profile) error {
 	for _, s := range p.Services {
 		fmt.Printf("    Service: %s %s, Handle (0x%02X)\n", s.UUID, ble.Name(s.UUID), s.Handle)
 
