@@ -126,9 +126,10 @@ func explore(ctx context.Context, cln ble.Client, p *ble.Profile) error {
 					continue
 				}
 
+				prefix := fmt.Sprintf("Service(%s), Characteristic(%s): ", s.UUID, c.UUID)
 				if (c.Property & ble.CharNotify) != 0 {
 					fmt.Printf("\n-- Subscribe to notification for %s --\n", *sub)
-					h := func(req []byte) { fmt.Printf("Notified: %q [ % X ]\n", string(req), req) }
+					h := func(req []byte) { fmt.Printf("%s: Notified: %q [ % X ]\n", prefix, string(req), req) }
 					if err := cln.Subscribe(c, false, h); err != nil {
 						log.Fatalf("subscribe failed: %s", err)
 					}
@@ -136,7 +137,7 @@ func explore(ctx context.Context, cln ble.Client, p *ble.Profile) error {
 				}
 				if (c.Property & ble.CharIndicate) != 0 {
 					fmt.Printf("\n-- Subscribe to indication of %s --\n", *sub)
-					h := func(req []byte) { fmt.Printf("Indicated: %q [ % X ]\n", string(req), req) }
+					h := func(req []byte) { fmt.Printf("%s: Indicated: %q [ % X ]\n", prefix, string(req), req) }
 					if err := cln.Subscribe(c, true, h); err != nil {
 						log.Fatalf("subscribe failed: %s", err)
 					}
